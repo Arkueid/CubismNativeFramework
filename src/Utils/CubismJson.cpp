@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Copyright(c) Live2D Inc. All rights reserved.
  *
  * Use of this source code is governed by the Live2D Open Software license
@@ -262,7 +262,7 @@ Value* CubismJson::ParseNumeric(const csmChar* buffer, csmInt32 length, csmInt32
                 decimalPointSeen = true;
                 break;
             }
-        case '\n': case ',':  // 終端には改行文字か、区切り文字の , が来る
+        case '\n': case ',': case '}': case ']':  // 数值终结符：换行、逗号、对象/数组闭括号（无缩进 JSON 中数值后直接跟闭括号）
             {
                 *outEndPos = i;
                 if (isNegative)  // 負数処理
