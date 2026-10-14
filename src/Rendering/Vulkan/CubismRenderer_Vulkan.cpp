@@ -8,6 +8,7 @@
 #include "CubismRenderer_Vulkan.hpp"
 #include "CubismDeviceInfo_Vulkan.hpp"
 #include "CubismOffscreenManager_Vulkan.hpp"
+#include "CubismRendererFrameDecouple.hpp"
 #include "Math/CubismMatrix44.hpp"
 #include "Type/csmVector.hpp"
 #include "Model/CubismModel.hpp"
@@ -31,6 +32,11 @@ VkImage s_renderImage;
 VkImageView s_imageView;
 VkFormat s_imageFormat;
 VkFormat s_depthFormat;
+
+// 外部帧录制（帧解耦）：宿主注入的帧命令缓冲与主区间挂起/恢复钩子
+VkCommandBuffer s_externalCommandBuffer = VK_NULL_HANDLE;
+SuspendMainRegionFunc s_suspendMainRegionFunc = NULL;
+ResumeMainRegionFunc s_resumeMainRegionFunc = NULL;
 
 const ModelVertex modelRenderTargetVertexArray[] = {
     {{-1.0f, -1.0f}, {0.0f, 0.0f}},
@@ -364,33 +370,37 @@ CubismPipeline_Vulkan::~CubismPipeline_Vulkan()
 
 VkShaderModule CubismPipeline_Vulkan::PipelineResource::CreateShaderModule(VkDevice device, csmString filename)
 {
-    std::ifstream file(filename.GetRawString(), std::ios::ate | std::ios::binary);
+    csmLoadFileFunction fileLoader = Csm::CubismFramework::GetLoadFileFunction();
+    csmReleaseBytesFunction bytesReleaser = Csm::CubismFramework::GetReleaseBytesFunction();
 
-    if (!file.is_open())
+    if (!fileLoader || !bytesReleaser)
+    {
+        CubismLogError("File loader is not set.");
+        return NULL;
+    }
+
+    csmSizeInt fileSize = 0;
+    csmByte* buffer = fileLoader(filename.GetRawString(), &fileSize);
+    if (buffer == NULL)
     {
         CubismLogError("failed to open file!");
         return NULL;
     }
 
-    csmInt32 fileSize = (csmInt32)file.tellg();
-    csmVector<char> buffer(fileSize);
-
-    file.seekg(0);
-    file.read(buffer.GetPtr(), fileSize);
-    file.close();
-
     VkShaderModuleCreateInfo createInfo{};
     createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
     createInfo.codeSize = fileSize;
-    createInfo.pCode = reinterpret_cast<const csmUint32*>(buffer.GetPtr());
+    createInfo.pCode = reinterpret_cast<const csmUint32*>(buffer);
 
     VkShaderModule shaderModule;
     if (vkCreateShaderModule(device, &createInfo, nullptr, &shaderModule) != VK_SUCCESS)
     {
         CubismLogError("failed to create shader module!");
+        bytesReleaser(buffer);
         return NULL;
     }
 
+    bytesReleaser(buffer);
     return shaderModule;
 }
 
@@ -984,6 +994,20 @@ void CubismRenderer_Vulkan::SetRenderTarget(VkImage image, VkImageView view, VkF
 void CubismRenderer_Vulkan::SetImageExtent(VkExtent2D extent)
 {
     s_renderExtent = extent;
+}
+
+void SetExternalFrameRecording(VkCommandBuffer commandBuffer,
+                               SuspendMainRegionFunc suspendFunc,
+                               ResumeMainRegionFunc resumeFunc)
+{
+    s_externalCommandBuffer = commandBuffer;
+    s_suspendMainRegionFunc = suspendFunc;
+    s_resumeMainRegionFunc = resumeFunc;
+}
+
+csmBool IsExternalRecording()
+{
+    return s_externalCommandBuffer != VK_NULL_HANDLE;
 }
 
 void CubismRenderer_Vulkan::CreateCommandBuffer()
@@ -2380,6 +2404,14 @@ void CubismRenderer_Vulkan::EndRendering(VkCommandBuffer drawCommandBuffer)
 
 void CubismRenderer_Vulkan::DoDrawModel()
 {
+    // 外部帧录制模式下，两个命令缓冲均别名到宿主的帧命令缓冲（纯录制，不自持）
+    const csmBool externalRecording = IsExternalRecording();
+    if (externalRecording)
+    {
+        _updateCommandBuffers[_commandBufferCurrent] = s_externalCommandBuffer;
+        _drawCommandBuffers[_commandBufferCurrent] = s_externalCommandBuffer;
+    }
+
     VkCommandBuffer updateCommandBuffer = _updateCommandBuffers[_commandBufferCurrent];
     VkCommandBuffer drawCommandBuffer = _drawCommandBuffers[_commandBufferCurrent];
 
@@ -2388,8 +2420,20 @@ void CubismRenderer_Vulkan::DoDrawModel()
     //------------ クリッピングマスク・バッファ前処理方式の場合 ------------
     VkCommandBufferBeginInfo beginInfo{};
     beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    vkBeginCommandBuffer(updateCommandBuffer, &beginInfo);
-    vkBeginCommandBuffer(drawCommandBuffer, &beginInfo);
+    if (externalRecording)
+    {
+        // 帧命令缓冲已由宿主 BeginFrame 开始录制，不得重置；
+        // mask 区间在帧主区间之外，先挂起主区间
+        if (s_suspendMainRegionFunc)
+        {
+            s_suspendMainRegionFunc(drawCommandBuffer);
+        }
+    }
+    else
+    {
+        vkBeginCommandBuffer(updateCommandBuffer, &beginInfo);
+        vkBeginCommandBuffer(drawCommandBuffer, &beginInfo);
+    }
 
     if (_drawableClippingManager != NULL)
     {
@@ -2450,10 +2494,24 @@ void CubismRenderer_Vulkan::DoDrawModel()
         }
     }
 
-    SubmitCommand(updateCommandBuffer, _updateFinishedSemaphores[_commandBufferCurrent]);
-    SubmitCommand(drawCommandBuffer, VK_NULL_HANDLE, _updateFinishedSemaphores[_commandBufferCurrent]);
+    if (externalRecording)
+    {
+        // 纯录制：mask 写→读 barrier 已由 EndDraw 记录，主区间由 DrawObjectLoop 的
+        // BeginRenderTarget 重开（自有深度区间）；不自持命令缓冲故不再提交
+    }
+    else
+    {
+        SubmitCommand(updateCommandBuffer, _updateFinishedSemaphores[_commandBufferCurrent]);
+        SubmitCommand(drawCommandBuffer, VK_NULL_HANDLE, _updateFinishedSemaphores[_commandBufferCurrent]);
+    }
 
     DrawObjectLoop(updateCommandBuffer, drawCommandBuffer, beginInfo);
+
+    if (externalRecording && s_resumeMainRegionFunc)
+    {
+        // 恢复宿主帧主区间（loadOp=LOAD），保持 BeginFrame/EndFrame 区间配对
+        s_resumeMainRegionFunc(drawCommandBuffer);
+    }
 }
 
 void CubismRenderer_Vulkan::PostDraw()
@@ -2728,8 +2786,13 @@ void CubismRenderer_Vulkan::DrawObjectLoop(VkCommandBuffer updateCommandBuffer, 
     }
 
     //描画
-    vkBeginCommandBuffer(updateCommandBuffer, &beginInfo);
-    vkBeginCommandBuffer(drawCommandBuffer, &beginInfo);
+    if (!IsExternalRecording())
+    {
+        vkBeginCommandBuffer(updateCommandBuffer, &beginInfo);
+        vkBeginCommandBuffer(drawCommandBuffer, &beginInfo);
+    }
+    // 挂起期间 swapchain 保持 COLOR_ATTACHMENT 布局，此处以 loadOp=LOAD 重开
+    // 渲染器的自有区间（含深度附件，与管线 rendering info 兼容）
     BeginRenderTarget(drawCommandBuffer, false);
 
     for (csmInt32 i = 0; i < totalCount; ++i)
@@ -2749,8 +2812,11 @@ void CubismRenderer_Vulkan::DrawObjectLoop(VkCommandBuffer updateCommandBuffer, 
 
     EndRenderTarget(drawCommandBuffer);
 
-    SubmitCommand(updateCommandBuffer, _updateFinishedSemaphores[_commandBufferCurrent]);
-    SubmitCommand(drawCommandBuffer, VK_NULL_HANDLE, _updateFinishedSemaphores[_commandBufferCurrent]);
+    if (!IsExternalRecording())
+    {
+        SubmitCommand(updateCommandBuffer, _updateFinishedSemaphores[_commandBufferCurrent]);
+        SubmitCommand(drawCommandBuffer, VK_NULL_HANDLE, _updateFinishedSemaphores[_commandBufferCurrent]);
+    }
 
     PostDraw();
 }
@@ -2800,10 +2866,13 @@ void CubismRenderer_Vulkan::DrawDrawable(csmInt32 drawableIndex,
             EnsurePreviousRenderFinished(drawCommandBuffer, currentHighPrecisionMaskColorBuffer);
 
             // 描画順を考慮して今までに積んだコマンドを実行する
-            SubmitCommand(updateCommandBuffer, _updateFinishedSemaphores[_commandBufferCurrent]);
-            SubmitCommand(drawCommandBuffer, VK_NULL_HANDLE, _updateFinishedSemaphores[_commandBufferCurrent]);
-            vkBeginCommandBuffer(updateCommandBuffer, &beginInfo);
-            vkBeginCommandBuffer(drawCommandBuffer, &beginInfo);
+            if (!IsExternalRecording())
+            {
+                SubmitCommand(updateCommandBuffer, _updateFinishedSemaphores[_commandBufferCurrent]);
+                SubmitCommand(drawCommandBuffer, VK_NULL_HANDLE, _updateFinishedSemaphores[_commandBufferCurrent]);
+                vkBeginCommandBuffer(updateCommandBuffer, &beginInfo);
+                vkBeginCommandBuffer(drawCommandBuffer, &beginInfo);
+            }
 
             currentHighPrecisionMaskColorBuffer->BeginDraw(drawCommandBuffer, 1.0f, 1.0f, 1.0f, 1.0f, true);
 
@@ -2841,10 +2910,13 @@ void CubismRenderer_Vulkan::DrawDrawable(csmInt32 drawableIndex,
             // --- 後処理 ---
             currentHighPrecisionMaskColorBuffer->EndDraw(drawCommandBuffer);
             SetClippingContextBufferForMask(NULL);
-            SubmitCommand(updateCommandBuffer, _updateFinishedSemaphores[_commandBufferCurrent]);
-            SubmitCommand(drawCommandBuffer, VK_NULL_HANDLE, _updateFinishedSemaphores[_commandBufferCurrent]);
-            vkBeginCommandBuffer(updateCommandBuffer, &beginInfo);
-            vkBeginCommandBuffer(drawCommandBuffer, &beginInfo);
+            if (!IsExternalRecording())
+            {
+                SubmitCommand(updateCommandBuffer, _updateFinishedSemaphores[_commandBufferCurrent]);
+                SubmitCommand(drawCommandBuffer, VK_NULL_HANDLE, _updateFinishedSemaphores[_commandBufferCurrent]);
+                vkBeginCommandBuffer(updateCommandBuffer, &beginInfo);
+                vkBeginCommandBuffer(drawCommandBuffer, &beginInfo);
+            }
 
             // 元のレンダーターゲットを再開
             if (_currentRenderTarget == NULL)
@@ -3030,10 +3102,13 @@ void CubismRenderer_Vulkan::DrawOffscreen(CubismOffscreenRenderTarget_Vulkan* cu
             EnsurePreviousRenderFinished(drawCommandBuffer, currentHighPrecisionMaskColorBuffer);
 
             // 描画順を考慮して今までに積んだコマンドを実行する
-            SubmitCommand(updateCommandBuffer, _updateFinishedSemaphores[_commandBufferCurrent]);
-            SubmitCommand(drawCommandBuffer, VK_NULL_HANDLE, _updateFinishedSemaphores[_commandBufferCurrent]);
-            vkBeginCommandBuffer(updateCommandBuffer, &beginInfo);
-            vkBeginCommandBuffer(drawCommandBuffer, &beginInfo);
+            if (!IsExternalRecording())
+            {
+                SubmitCommand(updateCommandBuffer, _updateFinishedSemaphores[_commandBufferCurrent]);
+                SubmitCommand(drawCommandBuffer, VK_NULL_HANDLE, _updateFinishedSemaphores[_commandBufferCurrent]);
+                vkBeginCommandBuffer(updateCommandBuffer, &beginInfo);
+                vkBeginCommandBuffer(drawCommandBuffer, &beginInfo);
+            }
 
             currentHighPrecisionMaskColorBuffer->BeginDraw(drawCommandBuffer, 1.0f, 1.0f, 1.0f, 1.0f, true);
 
@@ -3072,10 +3147,13 @@ void CubismRenderer_Vulkan::DrawOffscreen(CubismOffscreenRenderTarget_Vulkan* cu
             // --- 後処理 ---
             currentHighPrecisionMaskColorBuffer->EndDraw(drawCommandBuffer);
             SetClippingContextBufferForMask(NULL);
-            SubmitCommand(updateCommandBuffer, _updateFinishedSemaphores[_commandBufferCurrent]);
-            SubmitCommand(drawCommandBuffer, VK_NULL_HANDLE, _updateFinishedSemaphores[_commandBufferCurrent]);
-            vkBeginCommandBuffer(updateCommandBuffer, &beginInfo);
-            vkBeginCommandBuffer(drawCommandBuffer, &beginInfo);
+            if (!IsExternalRecording())
+            {
+                SubmitCommand(updateCommandBuffer, _updateFinishedSemaphores[_commandBufferCurrent]);
+                SubmitCommand(drawCommandBuffer, VK_NULL_HANDLE, _updateFinishedSemaphores[_commandBufferCurrent]);
+                vkBeginCommandBuffer(updateCommandBuffer, &beginInfo);
+                vkBeginCommandBuffer(drawCommandBuffer, &beginInfo);
+            }
 
             // ビューポートを戻す
             const VkViewport viewportRestore = GetViewport(
