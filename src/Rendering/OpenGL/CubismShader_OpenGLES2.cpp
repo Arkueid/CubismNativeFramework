@@ -122,7 +122,11 @@ void CubismShader_OpenGLES2::ReleaseShaderProgram()
     {
         if (_shaderSets[i]->ShaderProgram)
         {
-            glDeleteProgram(_shaderSets[i]->ShaderProgram);
+            // 多个 ShaderSet 可能共享同一 program，先检查有效性防止误删
+            if (glIsProgram(_shaderSets[i]->ShaderProgram))
+            {
+                glDeleteProgram(_shaderSets[i]->ShaderProgram);
+            }
             _shaderSets[i]->ShaderProgram = 0;
             CSM_DELETE(_shaderSets[i]);
         }
