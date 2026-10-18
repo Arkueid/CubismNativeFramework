@@ -286,7 +286,7 @@ CubismMotion::~CubismMotion()
     }
 }
 
-CubismMotion* CubismMotion::Create(const csmByte* buffer, csmSizeInt size, FinishedMotionCallback onFinishedMotionHandler, BeganMotionCallback onBeganMotionHandler, csmBool shouldCheckMotionConsistency)
+CubismMotion* CubismMotion::Create(const csmByte* buffer, csmSizeInt size, csmBool shouldCheckMotionConsistency)
 {
     CubismMotion* ret = CSM_NEW CubismMotion();
 
@@ -295,8 +295,6 @@ CubismMotion* CubismMotion::Create(const csmByte* buffer, csmSizeInt size, Finis
     {
         ret->_sourceFrameRate = ret->_motionData->Fps;
         ret->_loopDurationSeconds = ret->_motionData->Duration;
-        ret->_onFinishedMotion = onFinishedMotionHandler;
-        ret->_onBeganMotion = onBeganMotionHandler;
     }
     else
     {
@@ -575,11 +573,22 @@ void CubismMotion::DoUpdateParameters(CubismModel* model, csmFloat32 userTimeSec
         {
             UpdateForNextLoop(motionQueueEntry, userTimeSeconds, time);
         }
+        else if (motionQueueEntry->IsTriggeredFadeOut())
+        {
+            // 被抢占过（SetFadeout 置位且不复位）时越过 duration：不是自然
+            // 播完，静默结束，对齐 fadeout 到期路径的不触发语义。注意不能
+            // 用 EndTime 时间比较判定——fadeout 终点与 duration 重合时存在
+            // 浮点边界歧义
+            motionQueueEntry->IsFinished(true);
+        }
         else
         {
-            if (this->_onFinishedMotion != NULL)
+            if (mOnFinish)
             {
-                this->_onFinishedMotion(this);
+                // Copy before invoke: reentrant mount overwrites the slot and
+                // would destroy the in-flight wrapper state
+                std::function<void()> onFinish = mOnFinish;
+                onFinish();
             }
 
             motionQueueEntry->IsFinished(true);
@@ -602,9 +611,12 @@ void CubismMotion::UpdateForNextLoop(CubismMotionQueueEntry* motionQueueEntry, c
             motionQueueEntry->SetFadeInStartTime(userTimeSeconds - time);
         }
 
-        if (this->_onFinishedMotion != NULL)
+        if (mOnFinish)
         {
-            this->_onFinishedMotion(this);
+            // Copy before invoke（同自然播完路径）：重入挂载会覆盖槽位、
+            // 析构在飞 wrapper 的捕获状态
+            std::function<void()> onFinish = mOnFinish;
+            onFinish();
         }
         break;
     case MotionBehavior_V1:

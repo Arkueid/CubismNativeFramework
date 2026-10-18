@@ -38,13 +38,11 @@ public:
      *
      * @param buf buffer containing the loaded motion file
      * @param size size of the buffer in bytes
-     * @param onFinishedMotionHandler callback function for when motion playback ends
-     * @param onBeganMotionHandler callback function for when motion playback starts
      * @param shouldCheckMotionConsistency flag to validate the consistency of motion3.json
      *
      * @return created instance
      */
-    static CubismMotion* Create(const csmByte* buffer, csmSizeInt size, FinishedMotionCallback onFinishedMotionHandler = NULL, BeganMotionCallback onBeganMotionHandler = NULL, csmBool shouldCheckMotionConsistency = false);
+    static CubismMotion* Create(const csmByte* buffer, csmSizeInt size, csmBool shouldCheckMotionConsistency = false);
 
     /**
      * Updates the model parameters.

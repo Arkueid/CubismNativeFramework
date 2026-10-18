@@ -130,7 +130,6 @@ public:
      * @param buffer Buffer where the motion file is loaded
      * @param size Number of bytes in the buffer
      * @param name Name of the motion
-     * @param onFinishedMotionHandler Callback function when motion playback finishes
      * @param modelSetting Model setting information
      * @param group – Name to the desired Motion Group
      * @param index – Index to the desired Motion
@@ -138,7 +137,6 @@ public:
      * @return Instance of the motion class
      */
     virtual ACubismMotion*  LoadMotion(const csmByte* buffer, csmSizeInt size, const csmChar* name,
-                                       ACubismMotion::FinishedMotionCallback onFinishedMotionHandler = NULL, ACubismMotion::BeganMotionCallback onBeganMotionHandler = NULL,
                                        ICubismModelSetting* modelSetting = NULL, const csmChar* group = NULL, const csmInt32 index = -1, csmBool shouldCheckMotionConsistency = false);
 
     /**

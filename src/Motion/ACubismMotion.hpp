@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Copyright(c) Live2D Inc. All rights reserved.
  *
  * Use of this source code is governed by the Live2D Open Software license
@@ -10,6 +10,8 @@
 #include "CubismFramework.hpp"
 #include "Id/CubismId.hpp"
 #include "Type/csmVector.hpp"
+
+#include <functional>
 
 namespace Live2D { namespace Cubism { namespace Framework {
 
@@ -24,8 +26,6 @@ class CubismModel;
 class ACubismMotion
 {
 public:
-    typedef void (*BeganMotionCallback)(ACubismMotion* self);
-    typedef void (*FinishedMotionCallback)(ACubismMotion* self);
     /**
      * Destroys the instance.
      *
@@ -168,96 +168,6 @@ public:
                                                                    csmFloat32 motionTimeSeconds);
 
     /**
-     * Sets the motion playback completion callback.
-     *
-     * Not called in the following cases:
-     *   1. When the motion being played is set as "loop"
-     *   2. When NULL is set as the callback
-     *
-     * @param   onBeganMotionHandler     Motion playback start callback function
-     */
-    void SetBeganMotionHandler(BeganMotionCallback onBeganMotionHandler);
-
-    /**
-     * Sets the motion playback start callback.
-     *
-     * @return  Set motion playback start callback function. NULL if no function is set.
-     */
-    BeganMotionCallback GetBeganMotionHandler() const;
-
-    /**
-     * Sets the user-defined data.
-     *
-     * @param   onBeganMotionCustomData  User-defined data
-     */
-    void SetBeganMotionCustomData(void* onBeganMotionCustomData);
-
-    /**
-     * Returns the user-defined data.
-     *
-     * @return  Set user-defined data.
-     */
-    void* GetBeganMotionCustomData() const;
-
-    /**
-     * Sets the motion playback start callback.
-     *
-     * Not called in the following cases:
-     *   1. When the motion being played is set as "loop"
-     *   2. When NULL is set as the callback
-     *
-     * @param   onBeganMotionHandler     Motion playback start callback function
-     * @param   onBeganMotionCustomData  User-defined data
-     */
-    void SetBeganMotionHandlerAndMotionCustomData(BeganMotionCallback onBeganMotionHandler, void* onBeganMotionCustomData);
-
-    /**
-     * Sets the callback function for when motion playback ends.
-     *
-     * @param onFinishedMotionHandler callback function for when motion playback ends
-     *
-     * @note The callback function is called at the timing of setting the IsFinished flag.<br>
-     *       Not called in the following states:
-     *       1. When the playing motion is a loop motion
-     *       2. When the callback function is not set
-     */
-    void SetFinishedMotionHandler(FinishedMotionCallback onFinishedMotionHandler);
-
-    /**
-     * Returns the callback function for when motion playback ends.
-     *
-     * @return set callback function for when motion playback ends
-     */
-    FinishedMotionCallback GetFinishedMotionHandler();
-
-    /**
-     * Sets the user-defined data.
-     *
-     * @param   onFinishedMotionCustomData  User-defined data
-     */
-    void SetFinishedMotionCustomData(void* onFinishedMotionCustomData);
-
-    /**
-     * Returns the user-defined data.
-     *
-     * @return  Set user-defined data.
-     */
-    void* GetFinishedMotionCustomData();
-
-    /**
-     * Sets the motion playback completion callback.
-     *
-     * Called when the IsFinished flag is set.
-     * Not called in the following cases:
-     *   1. When the motion being played is set as "loop"
-     *   2. When NULL is set as the callback
-     *
-     * @param   onFinishedMotionHandler     Motion playback completion callback function
-     * @param   onFinishedMotionCustomData  User-defined data
-     */
-    void SetFinishedMotionHandlerAndMotionCustomData(FinishedMotionCallback onFinishedMotionHandler, void* onFinishedMotionCustomData);
-
-    /**
      * Checks whether there is an opacity curve.
      *
      * @return true if the key exists; otherwise false.
@@ -312,10 +222,14 @@ protected:
 
     csmVector<const csmString*>    _firedEventValues;
 
-    BeganMotionCallback _onBeganMotion;
-    void* _onBeganMotionCustomData;
-    FinishedMotionCallback _onFinishedMotion;
-    void* _onFinishedMotionCustomData;
+public:
+    // Per-motion callbacks (aligned with live2d-py V2 AMotion's mOnStart/mOnFinish).
+    // Context (group/no) is captured by the mounter's lambda.
+    //   mOnStart : fired when the entry starts playing (SetupMotionQueueEntry)
+    //   mOnFinish: fired only on natural playback end; motions ended by
+    //              fade-out preemption or StopAllMotions are removed silently
+    std::function<void()> mOnStart;
+    std::function<void()> mOnFinish;
 };
 
 }}}

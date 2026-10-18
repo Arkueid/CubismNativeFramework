@@ -26,10 +26,6 @@ ACubismMotion::ACubismMotion()
     , _isLoop(false)       // trueから false へデフォルトを変更
     , _isLoopFadeIn(true)  // ループ時にフェードインが有効かどうかのフラグ
     , _previousLoopState(_isLoop)
-    , _onBeganMotion(NULL)
-    , _onBeganMotionCustomData(NULL)
-    , _onFinishedMotion(NULL)
-    , _onFinishedMotionCustomData(NULL)
 { }
 
 ACubismMotion::~ACubismMotion()
@@ -80,9 +76,12 @@ void ACubismMotion::SetupMotionQueueEntry(CubismMotionQueueEntry* motionQueueEnt
         AdjustEndTime(motionQueueEntry);
     }
 
-    if (this->_onBeganMotion != NULL)
+    if (mOnStart)
     {
-        this->_onBeganMotion(this);
+        // Copy before invoke: a reentrant motion mount from inside the callback
+        // overwrites the slot and would destroy the in-flight wrapper state
+        std::function<void()> onStart = mOnStart;
+        onStart();
     }
 }
 
@@ -184,59 +183,6 @@ csmBool ACubismMotion::GetLoopFadeIn() const
 const csmVector<const csmString*>& ACubismMotion::GetFiredEvent(csmFloat32 beforeCheckTimeSeconds, csmFloat32 motionTimeSeconds)
 {
     return _firedEventValues;
-}
-
-void ACubismMotion::SetBeganMotionHandler(BeganMotionCallback onBeganMotionHandler)
-{
-    this->_onBeganMotion = onBeganMotionHandler;
-}
-
-ACubismMotion::BeganMotionCallback ACubismMotion::GetBeganMotionHandler() const
-{
-    return this->_onBeganMotion;
-}
-
-void ACubismMotion::SetBeganMotionCustomData(void* onBeganMotionCustomData)
-{
-    this->_onBeganMotionCustomData = onBeganMotionCustomData;
-}
-
-void* ACubismMotion::GetBeganMotionCustomData() const
-{
-    return this->_onBeganMotionCustomData;
-}
-
-void ACubismMotion::SetBeganMotionHandlerAndMotionCustomData(BeganMotionCallback onBeganMotionHandler,
-    void* onBeganMotionCustomData)
-{
-    this->_onBeganMotion = onBeganMotionHandler;
-    this->_onBeganMotionCustomData = onBeganMotionCustomData;
-}
-
-void ACubismMotion::SetFinishedMotionHandler(FinishedMotionCallback onFinishedMotionHandler)
-{
-    this->_onFinishedMotion = onFinishedMotionHandler;
-}
-
-ACubismMotion::FinishedMotionCallback ACubismMotion::GetFinishedMotionHandler()
-{
-    return this->_onFinishedMotion;
-}
-
-void ACubismMotion::SetFinishedMotionCustomData(void* onFinishedMotionCustomData)
-{
-    this->_onFinishedMotionCustomData = onFinishedMotionCustomData;
-}
-
-void* ACubismMotion::GetFinishedMotionCustomData()
-{
-    return this->_onFinishedMotionCustomData;
-}
-
-void ACubismMotion::SetFinishedMotionHandlerAndMotionCustomData(FinishedMotionCallback onFinishedMotionHandler, void* onFinishedMotionCustomData)
-{
-    this->_onFinishedMotion = onFinishedMotionHandler;
-    this->_onFinishedMotionCustomData = onFinishedMotionCustomData;
 }
 
 csmBool ACubismMotion::IsExistModelOpacity() const

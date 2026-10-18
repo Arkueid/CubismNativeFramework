@@ -189,8 +189,7 @@ csmBool CubismUserModel::IsHit(CubismIdHandle drawableId, csmFloat32 pointX, csm
 }
 
 ACubismMotion* CubismUserModel::LoadMotion(const csmByte* buffer, csmSizeInt size, const csmChar* name,
-                                            ACubismMotion::FinishedMotionCallback onFinishedMotionHandler, ACubismMotion::BeganMotionCallback onBeganMotionHandler,
-                                            ICubismModelSetting* modelSetting, const csmChar* group, const csmInt32 index, csmBool shouldCheckMotionConsistency)
+                                           ICubismModelSetting* modelSetting, const csmChar* group, const csmInt32 index, csmBool shouldCheckMotionConsistency)
 {
     if (!buffer)
     {
@@ -198,7 +197,7 @@ ACubismMotion* CubismUserModel::LoadMotion(const csmByte* buffer, csmSizeInt siz
         return NULL;
     }
 
-    ACubismMotion* motion = CubismMotion::Create(buffer, size, onFinishedMotionHandler, onBeganMotionHandler, shouldCheckMotionConsistency);
+    ACubismMotion* motion = CubismMotion::Create(buffer, size, shouldCheckMotionConsistency);
 
     if (!motion)
     {
