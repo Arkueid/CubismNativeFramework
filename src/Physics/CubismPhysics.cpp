@@ -893,7 +893,11 @@ void CubismPhysics::Evaluate(CubismModel* model, csmFloat32 deltaTimeSeconds)
     }
     else
     {
-        physicsDeltaTime = deltaTimeSeconds;
+        // 无 Fps 字段时固定步长而非使用真实帧 dt：UpdateParticles 的
+        // delay^2 力项按 30fps 归一化设计，高帧率下 dt 极小导致力项效应
+        // 大幅衰减（一阶速度项时间归一化正确，二阶力项随 dt^2 失真），
+        // 物理退化为无弹簧感的刚性跟随（如 nn 模型前发高速抖动）。
+        physicsDeltaTime = 1.0f / 60.0f;
     }
 
     while (_currentRemainTime >= physicsDeltaTime)
