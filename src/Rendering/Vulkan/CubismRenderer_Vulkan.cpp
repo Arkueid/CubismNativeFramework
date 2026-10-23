@@ -776,15 +776,15 @@ void CubismPipeline_Vulkan::ReleaseShaderProgram()
 *                                       CubismRenderer_Vulkan
 ********************************************************************************************************************/
 
-CubismRenderer* CubismRenderer::Create(csmUint32 width, csmUint32 height)
-{
-    return CSM_NEW CubismRenderer_Vulkan(width, height);
-}
+// CubismRenderer* CubismRenderer::Create(csmUint32 width, csmUint32 height)
+// {
+//     return CSM_NEW CubismRenderer_Vulkan(width, height);
+// }
 
-void CubismRenderer::StaticRelease()
-{
-    CubismRenderer_Vulkan::DoStaticRelease();
-}
+// void CubismRenderer::StaticRelease()
+// {
+//     CubismRenderer_Vulkan::DoStaticRelease();
+// }
 
 CubismRenderer_Vulkan::CubismRenderer_Vulkan(csmUint32 width, csmUint32 height) :
                                                CubismRenderer(width, height)

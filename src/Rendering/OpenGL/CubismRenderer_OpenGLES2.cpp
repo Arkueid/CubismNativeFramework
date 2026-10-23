@@ -469,15 +469,15 @@ void CubismRenderer_OpenGLES2::CheckGlError(const csmChar* message)
 
 #endif  //CSM_TARGET_WIN_GL
 
-CubismRenderer* CubismRenderer::Create(csmUint32 width, csmUint32 height)
-{
-    return CSM_NEW CubismRenderer_OpenGLES2(width, height);
-}
+// CubismRenderer* CubismRenderer::Create(csmUint32 width, csmUint32 height)
+// {
+//     return CSM_NEW CubismRenderer_OpenGLES2(width, height);
+// }
 
-void CubismRenderer::StaticRelease()
-{
-    CubismRenderer_OpenGLES2::DoStaticRelease();
-}
+// void CubismRenderer::StaticRelease()
+// {
+//     CubismRenderer_OpenGLES2::DoStaticRelease();
+// }
 
 CubismRenderer_OpenGLES2::CubismRenderer_OpenGLES2(csmUint32 width, csmUint32 height)
     : CubismRenderer(width, height)
