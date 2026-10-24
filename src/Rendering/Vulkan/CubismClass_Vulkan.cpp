@@ -309,6 +309,13 @@ void CubismImageVulkan::SetCurrentLayout(VkImageLayout newLayout)
 
 void CubismImageVulkan::Destroy(VkDevice device)
 {
+    // 释放顺序：view → image → memory → sampler。
+    // view 引用 image 与 memory，必须先于二者销毁
+    if (view != VK_NULL_HANDLE)
+    {
+        vkDestroyImageView(device, view, nullptr);
+        view = VK_NULL_HANDLE;
+    }
     if (image != VK_NULL_HANDLE)
     {
         vkDestroyImage(device, image, nullptr);
@@ -316,12 +323,8 @@ void CubismImageVulkan::Destroy(VkDevice device)
     }
     if (memory != VK_NULL_HANDLE)
     {
-        vkDestroyImageView(device, view, nullptr);
-    }
-    if (view != VK_NULL_HANDLE)
-    {
         vkFreeMemory(device, memory, nullptr);
-        view = VK_NULL_HANDLE;
+        memory = VK_NULL_HANDLE;
     }
     if (sampler != VK_NULL_HANDLE)
     {
