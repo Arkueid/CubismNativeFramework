@@ -14,6 +14,10 @@
 #include "Model/CubismModel.hpp"
 #include "Rendering/csmBlendMode.hpp"
 
+#if defined(TRACY_ENABLE)
+#include <tracy/Tracy.hpp>
+#endif
+
 //------------ LIVE2D NAMESPACE ------------
 namespace Live2D { namespace Cubism { namespace Framework { namespace Rendering {
 // 各種静的変数
@@ -2437,6 +2441,9 @@ void CubismRenderer_Vulkan::DoDrawModel()
 
     if (_drawableClippingManager != NULL)
     {
+#if defined(TRACY_ENABLE)
+        ZoneScopedN("vk/ClipSetupDrawable");
+#endif
         // サイズが違う場合はここで作成しなおし
         for (csmInt32 i = 0; i < _drawableClippingManager->GetRenderTextureCount(); ++i)
         {
@@ -2468,6 +2475,9 @@ void CubismRenderer_Vulkan::DoDrawModel()
     // オフスクリーン用クリッピングマネージャーの処理
     if (_offscreenClippingManager != NULL)
     {
+#if defined(TRACY_ENABLE)
+        ZoneScopedN("vk/ClipSetupOffscreen");
+#endif
         // サイズが違う場合はここで作成しなおし
         for (csmInt32 i = 0; i < _offscreenClippingManager->GetRenderTextureCount(); ++i)
         {
@@ -2769,19 +2779,26 @@ void CubismRenderer_Vulkan::DrawObjectLoop(VkCommandBuffer updateCommandBuffer, 
     _currentRenderTarget = NULL;
 
     // インデックスを描画順でソート
-    for (csmInt32 i = 0; i < totalCount; ++i)
     {
-        const csmInt32 order = renderOrder[i];
+#if defined(TRACY_ENABLE)
+        ZoneScopedN("vk/Sort");
+        TracyPlot("vk/drawables", static_cast<double>(drawableCount));
+        TracyPlot("vk/offscreens", static_cast<double>(offscreenCount));
+#endif
+        for (csmInt32 i = 0; i < totalCount; ++i)
+        {
+            const csmInt32 order = renderOrder[i];
 
-        if (i < drawableCount)
-        {
-            _sortedObjectsIndexList[order] = i;
-            _sortedObjectsTypeList[order] = DrawableObjectType_Drawable;
-        }
-        else if (i < totalCount)
-        {
-            _sortedObjectsIndexList[order] = i - drawableCount;
-            _sortedObjectsTypeList[order] = DrawableObjectType_Offscreen;
+            if (i < drawableCount)
+            {
+                _sortedObjectsIndexList[order] = i;
+                _sortedObjectsTypeList[order] = DrawableObjectType_Drawable;
+            }
+            else if (i < totalCount)
+            {
+                _sortedObjectsIndexList[order] = i - drawableCount;
+                _sortedObjectsTypeList[order] = DrawableObjectType_Offscreen;
+            }
         }
     }
 
@@ -2795,12 +2812,17 @@ void CubismRenderer_Vulkan::DrawObjectLoop(VkCommandBuffer updateCommandBuffer, 
     // 渲染器的自有区间（含深度附件，与管线 rendering info 兼容）
     BeginRenderTarget(drawCommandBuffer, false);
 
-    for (csmInt32 i = 0; i < totalCount; ++i)
     {
-        const csmInt32 objectIndex = _sortedObjectsIndexList[i];
-        const csmInt32 objectType = _sortedObjectsTypeList[i];
+#if defined(TRACY_ENABLE)
+        ZoneScopedN("vk/RecordObjects");
+#endif
+        for (csmInt32 i = 0; i < totalCount; ++i)
+        {
+            const csmInt32 objectIndex = _sortedObjectsIndexList[i];
+            const csmInt32 objectType = _sortedObjectsTypeList[i];
 
-        RenderObject(objectIndex, objectType, updateCommandBuffer, drawCommandBuffer, beginInfo);
+            RenderObject(objectIndex, objectType, updateCommandBuffer, drawCommandBuffer, beginInfo);
+        }
     }
 
     while (_currentOffscreen != NULL)
