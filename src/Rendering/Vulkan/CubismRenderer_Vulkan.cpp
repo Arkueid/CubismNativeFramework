@@ -39,6 +39,8 @@ VkFormat s_depthFormat;
 
 // 外部帧录制（帧解耦）：宿主注入的帧命令缓冲与主区间挂起/恢复钩子
 VkCommandBuffer s_externalCommandBuffer = VK_NULL_HANDLE;
+// 渲染区间外才能录制的命令（vkCmdCopyBuffer 等）专用缓冲
+VkCommandBuffer s_externalUploadCommandBuffer = VK_NULL_HANDLE;
 SuspendMainRegionFunc s_suspendMainRegionFunc = NULL;
 ResumeMainRegionFunc s_resumeMainRegionFunc = NULL;
 
@@ -1001,10 +1003,12 @@ void CubismRenderer_Vulkan::SetImageExtent(VkExtent2D extent)
 }
 
 void SetExternalFrameRecording(VkCommandBuffer commandBuffer,
+                               VkCommandBuffer uploadBuffer,
                                SuspendMainRegionFunc suspendFunc,
                                ResumeMainRegionFunc resumeFunc)
 {
     s_externalCommandBuffer = commandBuffer;
+    s_externalUploadCommandBuffer = uploadBuffer;
     s_suspendMainRegionFunc = suspendFunc;
     s_resumeMainRegionFunc = resumeFunc;
 }
@@ -2408,11 +2412,14 @@ void CubismRenderer_Vulkan::EndRendering(VkCommandBuffer drawCommandBuffer)
 
 void CubismRenderer_Vulkan::DoDrawModel()
 {
-    // 外部帧录制模式下，两个命令缓冲均别名到宿主的帧命令缓冲（纯录制，不自持）
+    // 外部帧录制模式下，绘制命令别名到宿主的帧命令缓冲（纯录制，不自持）；
+    // 传输命令（vkCmdCopyBuffer）不能在渲染区间内录制，别名到宿主的传输命令缓冲
     const csmBool externalRecording = IsExternalRecording();
     if (externalRecording)
     {
-        _updateCommandBuffers[_commandBufferCurrent] = s_externalCommandBuffer;
+        _updateCommandBuffers[_commandBufferCurrent] = (s_externalUploadCommandBuffer != VK_NULL_HANDLE)
+                                                           ? s_externalUploadCommandBuffer
+                                                           : s_externalCommandBuffer;
         _drawCommandBuffers[_commandBufferCurrent] = s_externalCommandBuffer;
     }
 

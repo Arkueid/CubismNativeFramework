@@ -18,11 +18,13 @@ typedef void (*ResumeMainRegionFunc)(VkCommandBuffer commandBuffer);
 /**
  * @brief   设置外部帧录制（每次 Draw 前由宿主刷新）
  *
- * @param[in]   commandBuffer  -> 宿主帧命令缓冲
+ * @param[in]   commandBuffer  -> 宿主帧命令缓冲（处于渲染区间内，只能录绘制类命令）
+ * @param[in]   uploadBuffer   -> 宿主传输命令缓冲（渲染区间外，vkCmdCopyBuffer 等必须录在这里）
  * @param[in]   suspendFunc    -> 挂起主区间钩子（vkCmdEndRendering）
  * @param[in]   resumeFunc     -> 恢复主区间钩子（vkCmdBeginRendering, loadOp=LOAD）
  */
 void SetExternalFrameRecording(VkCommandBuffer commandBuffer,
+                               VkCommandBuffer uploadBuffer,
                                SuspendMainRegionFunc suspendFunc,
                                ResumeMainRegionFunc resumeFunc);
 
