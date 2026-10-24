@@ -81,6 +81,13 @@ public:
      */
     VkBuffer GetBuffer() const { return buffer; }
 
+    /**
+     * @brief   マップ済み領域へのポインタを取得する
+     *
+     * @return マップ済みポインタ（未マップなら nullptr）
+     */
+    void* GetMapped() const { return mapped; }
+
 private:
     VkBuffer buffer; ///< バッファ
     VkDeviceMemory memory; ///< メモリ

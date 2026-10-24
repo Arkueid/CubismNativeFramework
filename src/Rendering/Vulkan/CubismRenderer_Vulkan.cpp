@@ -1646,23 +1646,20 @@ void CubismRenderer_Vulkan::SetupParentOffscreens(const CubismModel* model, csmI
 void CubismRenderer_Vulkan::CopyToBuffer(csmInt32 drawAssign, const csmInt32 vcount, const csmFloat32* varray,
                                          const csmFloat32* uvarray, VkCommandBuffer commandBuffer)
 {
-    csmVector<ModelVertex> vertices;
-
-    for (csmInt32 ct = 0; ct < vcount * 2; ct += 2)
+    // ステージング領域へ直接インタリーブ書き込みする（一時 csmVector を確保しない。
+    // 旧実装は頂点ごとに PushBack していたため、drawable 数の多いモデルで
+    // ヒープ再確保が積み上がり録画コストの主要因になっていた）
+    ModelVertex* dst = static_cast<ModelVertex*>(
+        _stagingBuffers[_commandBufferCurrent][drawAssign].GetMapped());
+    for (csmInt32 ct = 0; ct < vcount; ++ct)
     {
-        ModelVertex vertex;
-        // モデルデータからのコピー
-        vertex.pos.X = varray[ct + 0];
-        vertex.pos.Y = varray[ct + 1];
-        vertex.texCoord.X = uvarray[ct + 0];
-        vertex.texCoord.Y = uvarray[ct + 1];
-        vertices.PushBack(vertex);
+        dst[ct].pos.X = varray[ct * 2 + 0];
+        dst[ct].pos.Y = varray[ct * 2 + 1];
+        dst[ct].texCoord.X = uvarray[ct * 2 + 0];
+        dst[ct].texCoord.Y = uvarray[ct * 2 + 1];
     }
-    csmUint32 bufferSize = sizeof(ModelVertex) * vertices.GetSize();
-    _stagingBuffers[_commandBufferCurrent][drawAssign].MemCpy(vertices.GetPtr(), (size_t)bufferSize);
-
     VkBufferCopy copyRegion{};
-    copyRegion.size = bufferSize;
+    copyRegion.size = sizeof(ModelVertex) * static_cast<VkDeviceSize>(vcount);
     vkCmdCopyBuffer(commandBuffer, _stagingBuffers[_commandBufferCurrent][drawAssign].GetBuffer(), _vertexBuffers[_commandBufferCurrent][drawAssign].GetBuffer(), 1,
                     &copyRegion);
 }
